@@ -1,6 +1,6 @@
 // Copyright (c) 2025 Apple Inc. Licensed under MIT License.
 
-import type { JSType } from "../../utils/database.js";
+import type { ColumnDesc, JSType } from "../../utils/database.js";
 import type { ChartSpec } from "../spec/spec.js";
 
 export interface Field {
@@ -11,6 +11,23 @@ export interface Field {
 export type UIElement =
   | {
       field: {
+        key: string;
+        required?: boolean;
+        types?: JSType[] | null;
+        /** Additional column filter, applied after `types`. */
+        accept?: (column: ColumnDesc) => boolean;
+        /**
+         * Key of an optional table element to source columns from (default: the chart's table).
+         * The field is hidden and undefined until that table is selected; `required` then
+         * applies only when it is.
+         */
+        table?: string;
+      };
+      label?: string;
+      details?: string;
+    }
+  | {
+      fields: {
         key: string;
         required?: boolean;
         types?: JSType[] | null;
@@ -33,18 +50,36 @@ export type UIElement =
       };
       label?: string;
       details?: string;
+    }
+  | {
+      table: {
+        key: string;
+        /**
+         * An auxiliary table (e.g., a metadata table) rather than the chart's data table.
+         * Defaults to none, and fields referencing it via `field.table` source its columns.
+         */
+        optional?: boolean;
+      };
+      label?: string;
+      details?: string;
     };
 
 // Helpers to infer the type of values from the UI description.
-type UIValue<E> = E extends { field: { key: infer K extends string; required: true } }
-  ? { [P in K]: Field }
-  : E extends { field: { key: infer K extends string } }
+type UIValue<E> = E extends { fields: { key: infer K extends string } }
+  ? { [P in K]: Field[] }
+  : E extends { field: { key: infer K extends string; table: string } }
     ? { [P in K]: Field | undefined }
-    : E extends { code: { key: infer K extends string } }
-      ? { [P in K]: string }
-      : E extends { spec: { key: infer K extends string } }
-        ? { [P in K]: ChartSpec }
-        : never;
+    : E extends { field: { key: infer K extends string; required: true } }
+      ? { [P in K]: Field }
+      : E extends { field: { key: infer K extends string } }
+        ? { [P in K]: Field | undefined }
+        : E extends { code: { key: infer K extends string } }
+          ? { [P in K]: string }
+          : E extends { spec: { key: infer K extends string } }
+            ? { [P in K]: ChartSpec }
+            : E extends { table: { key: infer K extends string } }
+              ? { [P in K]: string | undefined }
+              : never;
 
 type UnionToIntersection<U> = (U extends any ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
 type UIValues<A extends readonly UIElement[]> = UnionToIntersection<UIValue<A[number]>>;
@@ -63,5 +98,8 @@ export interface ChartBuilderDescription<Spec, UI extends readonly UIElement[]> 
   preview?: boolean;
 
   /** A function to create a chart spec from the given values */
-  create: (values: UIValues<UI>, context: { table: string; id: string }) => Spec | undefined;
+  create: (
+    values: UIValues<UI>,
+    context: { tables: Record<string, { id: string; columns: ColumnDesc[] }> },
+  ) => Spec | undefined;
 }

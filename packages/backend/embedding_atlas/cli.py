@@ -23,6 +23,7 @@ from .utils import (
     load_huggingface_data,
     load_pandas_data,
     logger,
+    parse_kv,
 )
 from .version import __version__
 
@@ -160,6 +161,13 @@ def import_modules(names: list[str]):
     "--vector", default=None, help="Column containing pre-computed vector embeddings."
 )
 @click.option(
+    "--features",
+    default=None,
+    help="Column containing features. If specified, a features list view will be created. "
+    "The column should be a list of feature strings, or a list of structs, one per feature, "
+    "each with a 'feature' field and optional 'source' and 'index' fields.",
+)
+@click.option(
     "--split",
     default=[],
     multiple=True,
@@ -242,6 +250,27 @@ def import_modules(names: list[str]):
     help="Compute PageRank scores from the neighbor graph, or specify a column containing pre-computed scores. Automatically computed when --image is specified.",
 )
 @click.option(
+    "--degree",
+    "compute_degree",
+    is_flag=True,
+    default=False,
+    help="Compute degree centrality from the neighbor graph (adds in_degree, out_degree, and degree columns).",
+)
+@click.option(
+    "--kcore",
+    "compute_kcore",
+    is_flag=True,
+    default=False,
+    help="Compute k-core (in-degree core) numbers from the neighbor graph (adds a kcore column).",
+)
+@click.option(
+    "--clustering",
+    "compute_clustering",
+    is_flag=True,
+    default=False,
+    help="Compute the local clustering coefficient from the neighbor graph (adds a clustering column).",
+)
+@click.option(
     "--query",
     default=None,
     type=str,
@@ -270,6 +299,27 @@ def import_modules(names: list[str]):
 )
 @click.option(
     "--umap-random-state", type=int, help="Random seed for reproducible UMAP results."
+)
+@click.option(
+    "--table",
+    "extra_tables",
+    type=(str, str),
+    multiple=True,
+    help="Load an additional table. Format: --table NAME PATH (e.g., --table topics topics.parquet). Can be specified multiple times.",
+)
+@click.option(
+    "--table-relation",
+    "table_relations",
+    type=(str, str),
+    multiple=True,
+    help="Declare how an additional table joins to the main table, for cross-table filtering. "
+    "Format: --table-relation NAME 'KV', where KV is semicolon-separated key=value pairs describing "
+    "the relation: mainKey (join expression over the main table), key (join column on this table). "
+    "Wrap an expression in UNNEST(...) when the key is list-valued (e.g. a list/struct-list column). "
+    "NAME must match a --table NAME. "
+    "Example: --table-relation features "
+    "'mainKey=UNNEST(list_transform(features, s -> s.feature));key=feature'. "
+    "Can be specified multiple times.",
 )
 @click.option(
     "--duckdb",
@@ -341,6 +391,15 @@ def import_modules(names: list[str]):
     help="Path to a file containing labels for the embedding view. The file should be a table with columns 'x', 'y', 'text', and optionally 'level' and 'priority'",
 )
 @click.option(
+    "--state",
+    "initial_state",
+    type=JSONParamType(),
+    default=None,
+    help="Initial app state (charts, layouts, column styles, ...), as exported from the app. "
+    "Pass a JSON string or a path to a JSON file. If the state contains charts, "
+    "they replace the default charts.",
+)
+@click.option(
     "--mcp/--no-mcp",
     "enable_mcp",
     default=False,
@@ -353,6 +412,7 @@ def main(
     image: str | None,
     audio: str | None,
     vector: str | None,
+    features: str | None,
     split: list[str] | None,
     enable_projection: bool,
     model: str | None,
@@ -367,12 +427,17 @@ def main(
     y_column: str | None,
     neighbors_column: str | None,
     pagerank_column: str | None,
+    compute_degree: bool,
+    compute_kcore: bool,
+    compute_clustering: bool,
     query: str | None,
     sample: int | None,
     umap_n_neighbors: int | None,
     umap_min_dist: float | None,
     umap_metric: str | None,
     umap_random_state: int | None,
+    extra_tables: list[tuple[str, str]] | None,
+    table_relations: list[tuple[str, str]] | None,
     static: str | None,
     duckdb: str,
     host: str,
@@ -385,6 +450,7 @@ def main(
     point_size: float | None,
     stop_words: str | None,
     labels: str | None,
+    initial_state: dict | None,
     enable_mcp: bool,
 ):
     apply_logging_config()
@@ -395,6 +461,37 @@ def main(
     df = load_datasets(inputs, splits=split, query=query, sample=sample)
 
     print(df)
+
+    additional_tables = {}
+
+    if extra_tables is not None:
+        for name, path in extra_tables:
+            additional_tables[name] = load_datasets([path])
+
+    # Give every additional table a synthetic row id (mirroring the main table)
+    # so it can be registered in the UI even without a declared relation. Then
+    # attach any --table-relation, whose KV maps directly to the join relation.
+    additional_tables_meta = {}
+    for name, adf in additional_tables.items():
+        aux_id = find_column_name(adf.columns, "__row_index__")
+        adf[aux_id] = range(adf.shape[0])
+        additional_tables_meta[name] = {"id": aux_id}
+    if table_relations is not None:
+        for name, kv in table_relations:
+            if name not in additional_tables:
+                raise click.BadParameter(
+                    f"--table-relation {name!r} has no matching --table {name!r}"
+                )
+            # Validate keys/values in parse_kv so a typo (e.g. `mainkey`) or a
+            # blank value fails loudly instead of silently falling back to the
+            # id-column join (a wrong but non-erroring cross-table filter).
+            try:
+                relation = parse_kv(
+                    kv, allowed_keys={"mainKey", "key"}, allow_empty_values=False
+                )
+            except ValueError as e:
+                raise click.BadParameter(f"--table-relation {name!r}: {e}")
+            additional_tables_meta[name]["relation"] = relation
 
     if enable_projection and (x_column is None or y_column is None):
         # No x, y column selected, first see if text/image/vectors column is specified, if not, ask for it
@@ -499,7 +596,7 @@ def main(
         and neighbors_column is not None
         and neighbors_column in df.columns
     ):
-        from embedding_atlas.pagerank import compute_pagerank_column
+        from embedding_atlas.graph_metrics import compute_pagerank_column
 
         logger.info("Computing PageRank scores from neighbor graph...")
         pagerank_column = find_column_name(df.columns, "pagerank")
@@ -507,6 +604,53 @@ def main(
     elif pagerank_column == "__compute__":
         logger.warning("Cannot compute PageRank: no neighbor data available.")
         pagerank_column = None
+
+    # Compute optional per-point graph metrics from the neighbor graph.
+    requested_metrics = [
+        name
+        for name, enabled in {
+            "degree": compute_degree,
+            "kcore": compute_kcore,
+            "clustering": compute_clustering,
+        }.items()
+        if enabled
+    ]
+    if requested_metrics:
+        if neighbors_column is not None and neighbors_column in df.columns:
+            from .graph_metrics import (
+                compute_clustering_column,
+                compute_degree_columns,
+                compute_kcore_column,
+            )
+
+            # Each metric maps to the column name(s) it produces and a thunk
+            # returning that many per-row arrays (degree yields three).
+            metric_specs = {
+                "degree": (
+                    ["in_degree", "out_degree", "degree"],
+                    lambda: compute_degree_columns(df, neighbors=neighbors_column),
+                ),
+                "kcore": (
+                    ["kcore"],
+                    lambda: (compute_kcore_column(df, neighbors=neighbors_column),),
+                ),
+                "clustering": (
+                    ["clustering"],
+                    lambda: (
+                        compute_clustering_column(df, neighbors=neighbors_column),
+                    ),
+                ),
+            }
+            for name in requested_metrics:
+                bases, compute = metric_specs[name]
+                logger.info(f"Computing {name} from neighbor graph...")
+                for base, values in zip(bases, compute()):
+                    df[find_column_name(df.columns, base)] = values
+        else:
+            logger.warning(
+                f"Cannot compute graph metrics ({', '.join(requested_metrics)}): "
+                "no neighbor data available."
+            )
 
     props = make_embedding_atlas_props(
         row_id=id_column,
@@ -516,9 +660,12 @@ def main(
         importance=pagerank_column,
         text=text,
         image=image,
+        features=features,
         point_size=point_size,
         stop_words=stop_words_resolved,
         labels=labels_resolved,
+        initial_state=initial_state,
+        additional_tables=additional_tables_meta or None,
     )
 
     metadata = {
@@ -526,7 +673,7 @@ def main(
     }
 
     identifier = sha256_hexdigest([__version__, inputs, metadata], scope="DataSource")
-    dataset = DataSource(identifier, df, metadata)
+    dataset = DataSource(identifier, df, metadata, additional_tables=additional_tables)
 
     if static is None:
         static = (Path(__file__).parent / "static").resolve().as_posix()
@@ -552,7 +699,11 @@ def main(
             ]
 
     app = make_server(
-        dataset, static_path=static, duckdb_uri=duckdb, mcp=enable_mcp, cors=cors_config
+        dataset,
+        static_path=static,
+        duckdb_uri=duckdb,
+        mcp=enable_mcp,
+        cors=cors_config,
     )
 
     if enable_auto_port:
