@@ -1,6 +1,7 @@
 # Copyright (c) 2025 Apple Inc. Licensed under MIT License.
 
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -19,9 +20,9 @@ def load_pandas_data(url: str) -> pd.DataFrame:
 
     if suffix == ".parquet":
         df = pd.read_parquet(url)
-    elif suffix == ".json" or suffix == ".ndjson":
+    elif suffix == ".json":
         df = pd.read_json(url)
-    elif suffix == ".jsonl":
+    elif suffix == ".jsonl" or suffix == ".ndjson":
         df = pd.read_json(url, lines=True)
     else:
         df = pd.read_csv(url)
@@ -35,7 +36,7 @@ def load_huggingface_data(filename: str, splits: list[str] | None) -> pd.DataFra
         print(
             "⚠️ Loading Hugging Face datasets requires the `datasets` package to be installed. Please run `pip install datasets`, then try again."
         )
-        exit(-1)
+        sys.exit(-1)
 
     if Path(filename).is_dir():
         ds: Any = load_from_disk(filename)
@@ -51,7 +52,7 @@ def load_huggingface_data(filename: str, splits: list[str] | None) -> pd.DataFra
 
     if splits is None or len(splits) == 0:
         ds_split_options = []
-        for key in ds.keys():
+        for key in ds:
             option = (f"{key} ({ds[key].num_rows} rows)", key)
             ds_split_options.append(option)
         split_question = [
@@ -97,3 +98,39 @@ def apply_logging_config():
     )
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def parse_kv(
+    text: str,
+    allowed_keys: set[str] | None = None,
+    allow_empty_values: bool = True,
+) -> dict[str, str]:
+    """Parse a semicolon-separated `key=value` string into a dict.
+
+    Keys and values are stripped of surrounding whitespace; values may contain
+    `=` (only the first `=` of each pair is treated as the separator). Empty
+    segments are ignored.
+
+    Raises ValueError on a segment without `=`, on a key outside `allowed_keys`
+    (when provided — catches typos like `mainkey`), or on an empty value when
+    `allow_empty_values` is False.
+
+    Example: parse_kv("a=1;b=x = y") -> {"a": "1", "b": "x = y"}
+    """
+    result: dict[str, str] = {}
+    for part in text.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            raise ValueError(f"invalid key=value pair: {part!r}")
+        key, value = part.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if allowed_keys is not None and key not in allowed_keys:
+            allowed = ", ".join(repr(k) for k in sorted(allowed_keys))
+            raise ValueError(f"unknown key {key!r}; allowed keys are {allowed}")
+        if not allow_empty_values and value == "":
+            raise ValueError(f"empty value for key {key!r}")
+        result[key] = value
+    return result

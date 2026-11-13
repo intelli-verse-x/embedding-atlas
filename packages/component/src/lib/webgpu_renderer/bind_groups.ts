@@ -1,21 +1,24 @@
 // Copyright (c) 2025 Apple Inc. Licensed under MIT License.
 
-import type { Dataflow, Node } from "../dataflow.js";
+import type { Dataflow, DataflowNode } from "@embedding-atlas/utils";
+
 import type { AuxiliaryResources, DataBuffers } from "./renderer.js";
 
 export interface BindGroups {
-  layouts: Node<{
+  layouts: DataflowNode<{
     group0: GPUBindGroupLayout;
     group1: GPUBindGroupLayout;
     group2A: GPUBindGroupLayout;
     group2B: GPUBindGroupLayout;
+    group2BlurForward: GPUBindGroupLayout;
     group3: GPUBindGroupLayout;
   }>;
-  group0: Node<GPUBindGroup>;
-  group1: Node<GPUBindGroup>;
-  group2A: Node<GPUBindGroup>;
-  group2B: Node<GPUBindGroup>;
-  group3: Node<GPUBindGroup>;
+  group0: DataflowNode<GPUBindGroup>;
+  group1: DataflowNode<GPUBindGroup>;
+  group2A: DataflowNode<GPUBindGroup>;
+  group2B: DataflowNode<GPUBindGroup>;
+  group2BlurForward: DataflowNode<GPUBindGroup>;
+  group3: DataflowNode<GPUBindGroup>;
   // Note: group4 for downsampling is managed separately in downsample.ts
 }
 
@@ -24,6 +27,7 @@ export function makeBindGroupLayouts(device: GPUDevice): {
   group1: GPUBindGroupLayout;
   group2A: GPUBindGroupLayout;
   group2B: GPUBindGroupLayout;
+  group2BlurForward: GPUBindGroupLayout;
   group3: GPUBindGroupLayout;
 } {
   const { COMPUTE, VERTEX, FRAGMENT } = GPUShaderStage;
@@ -50,6 +54,17 @@ export function makeBindGroupLayouts(device: GPUDevice): {
         { binding: 2, visibility: COMPUTE | FRAGMENT, buffer: { type: "storage" } },
       ],
     }),
+    // Group 2 for the gaussian blur forward pass: count_buffer (0), blur_swap_buffer (2).
+    // count_buffer physically aliases blur_buffer, so this layout must NOT also declare
+    // binding 1 (blur_buffer): WebGPU rejects two writable storage bindings that overlap
+    // the same buffer within one pipeline layout, regardless of which the shader statically
+    // uses. The backward pass writes blur_buffer via the separate group2B layout ({1, 2}).
+    group2BlurForward: device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: COMPUTE, buffer: { type: "storage" } },
+        { binding: 2, visibility: COMPUTE, buffer: { type: "storage" } },
+      ],
+    }),
     // Group 3
     group3: device.createBindGroupLayout({
       entries: [
@@ -63,8 +78,8 @@ export function makeBindGroupLayouts(device: GPUDevice): {
 
 export function makeBindGroups(
   df: Dataflow,
-  device: Node<GPUDevice>,
-  uniformBuffer: Node<GPUBuffer>,
+  device: DataflowNode<GPUDevice>,
+  uniformBuffer: DataflowNode<GPUBuffer>,
   dataBuffers: DataBuffers,
   auxiliaryResources: AuxiliaryResources,
 ): BindGroups {
@@ -106,6 +121,17 @@ export function makeBindGroups(
         ],
       }),
   );
+  let group2BlurForward = df.derive(
+    [device, layouts, auxiliaryResources.countBuffer, auxiliaryResources.blurBuffer],
+    (device, layouts, countBuffer, blurBuffer) =>
+      device.createBindGroup({
+        layout: layouts.group2BlurForward,
+        entries: [
+          { binding: 0, resource: { buffer: countBuffer } },
+          { binding: 2, resource: { buffer: blurBuffer } },
+        ],
+      }),
+  );
   let group3 = df.derive(
     [device, layouts, auxiliaryResources.colorTexture, auxiliaryResources.alphaTexture],
     (device, layouts, colorTexture, alphaTexture) =>
@@ -125,6 +151,7 @@ export function makeBindGroups(
     group1: group1,
     group2A: group2A,
     group2B: group2B,
+    group2BlurForward: group2BlurForward,
     group3: group3,
   };
 }
