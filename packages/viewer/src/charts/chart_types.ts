@@ -10,6 +10,7 @@ import Predicates from "./basic/Predicates.svelte";
 import Builder from "./builder/Builder.svelte";
 import Embedding from "./embedding/Embedding.svelte";
 import Instances from "./instances/Instances.svelte";
+import ParallelCoordinates from "./parallel_coordinates/ParallelCoordinates.svelte";
 import Chart from "./spec/Chart.svelte";
 
 import type {
@@ -24,7 +25,11 @@ import type { UIElement } from "./builder/builder_description.js";
 import type { ChartBuilderDescription, ChartViewProps } from "./chart.js";
 import { histogramSpec } from "./default_charts.js";
 import type { EmbeddingSpec, EmbeddingState } from "./embedding/types.js";
+import FeaturesList from "./features/FeaturesList.svelte";
+import type { FeaturesListSpec, FeaturesListState } from "./features/types.js";
+import { isFeaturesColumn } from "./features/utils.js";
 import type { InstancesSpec } from "./instances/types.js";
+import type { ParallelCoordinatesSpec, ParallelCoordinatesState } from "./parallel_coordinates/types.js";
 import type { ChartSpec, ChartState } from "./spec/spec.js";
 
 export type ChartComponent = Component<ChartViewProps<any, any>, {}, "">;
@@ -89,7 +94,9 @@ registerChartType("builder", Builder);
 // Builtin chart types
 registerChartType("count-plot", CountPlot);
 registerChartType("embedding", Embedding);
+registerChartType("parallel-coordinates", ParallelCoordinates);
 registerChartType("instances", Instances);
+registerChartType("features-list", FeaturesList);
 registerChartType("predicates", Predicates);
 registerChartType("markdown", Markdown, { supportsEditMode: true });
 registerChartType("content-viewer", ContentViewer);
@@ -101,11 +108,19 @@ export type BuiltinChartSpec =
   | CountPlotSpec
   | EmbeddingSpec
   | InstancesSpec
+  | FeaturesListSpec
   | MarkdownSpec
+  | ParallelCoordinatesSpec
   | PredicatesSpec;
 
 // State type for all builtin chart types
-export type BuiltinChartState = ChartState | EmbeddingState | CountPlotState | PredicatesState;
+export type BuiltinChartState =
+  | ChartState
+  | EmbeddingState
+  | ParallelCoordinatesState
+  | CountPlotState
+  | FeaturesListState
+  | PredicatesState;
 
 // Chart builders
 
@@ -136,24 +151,27 @@ registerChartBuilder({
   icon: "chart-stacked",
   description: "Create a histogram of a field",
   ui: [
+    { label: "Table", table: { key: "table" } }, //
     { label: "Field", field: { key: "x", types: ["number", "string", "Date"], required: true } }, //
     { label: "Group Field", field: { key: "color", types: ["number", "string", "Date"] } },
   ] as const,
-  create: ({ x, color }): ChartSpec | undefined => histogramSpec(x.name, color?.name),
+  create: ({ x, color, table }): ChartSpec | undefined => histogramSpec(x.name, color?.name, table),
 });
 
 registerChartBuilder({
   icon: "chart-line",
   description: "Create a line chart of two fields",
   ui: [
+    { label: "Table", table: { key: "table" } }, //
     { label: "X Field", field: { key: "x", types: ["number", "string", "Date"], required: true } }, //
     { label: "Y Field", field: { key: "y", types: ["number"], required: true } }, //
     { label: "Group Field", field: { key: "color", types: ["number", "string", "Date"] } },
   ] as const,
-  create: ({ x, y, color }): ChartSpec | undefined => ({
+  create: ({ x, y, color, table }): ChartSpec | undefined => ({
     title: y.name,
     layers: [
       {
+        ...(table != null ? { from: table } : {}),
         mark: "line",
         filter: "$filter",
         encoding: {
@@ -175,13 +193,15 @@ registerChartBuilder({
   icon: "chart-ecdf",
   description: "Create a chart showing the empirical cumulative distribution (eCDF) of a field",
   ui: [
+    { label: "Table", table: { key: "table" } }, //
     { label: "Field", field: { key: "x", types: ["number"], required: true } }, //
     { label: "Group Field", field: { key: "color", types: ["number", "string", "Date"] } },
   ] as const,
-  create: ({ x, color }): ChartSpec | undefined => ({
+  create: ({ x, color, table }): ChartSpec | undefined => ({
     title: x.name,
     layers: [
       {
+        ...(table != null ? { from: table } : {}),
         mark: "line",
         filter: "$filter",
         encoding: {
@@ -200,13 +220,15 @@ registerChartBuilder({
   icon: "chart-heatmap",
   description: "Create a 2D heatmap of two fields",
   ui: [
+    { label: "Table", table: { key: "table" } }, //
     { label: "X Field", field: { key: "x", types: ["number", "string", "Date"], required: true } }, //
     { label: "Y Field", field: { key: "y", types: ["number", "string", "Date"], required: true } }, //
   ] as const,
-  create: ({ x, y }): ChartSpec | undefined => ({
+  create: ({ x, y, table }): ChartSpec | undefined => ({
     title: `${x.name}, ${y.name}`,
     layers: [
       {
+        ...(table != null ? { from: table } : {}),
         mark: "rect",
         filter: "$filter",
         zIndex: -1,
@@ -217,6 +239,7 @@ registerChartBuilder({
         },
       },
       {
+        ...(table != null ? { from: table } : {}),
         mark: "rect",
         zIndex: -2,
         encoding: {
@@ -239,13 +262,15 @@ registerChartBuilder({
   icon: "chart-boxplot",
   description: "Create a box plot",
   ui: [
+    { label: "Table", table: { key: "table" } }, //
     { label: "X Field", field: { key: "x", types: ["number", "string", "Date"], required: true } }, //
     { label: "Y Field", field: { key: "y", types: ["number"], required: true } }, //
   ] as const,
-  create: ({ x, y }): ChartSpec | undefined => ({
+  create: ({ x, y, table }): ChartSpec | undefined => ({
     title: x.name,
     layers: [
       {
+        ...(table != null ? { from: table } : {}),
         mark: "rect",
         filter: "$filter",
         width: 1,
@@ -257,6 +282,7 @@ registerChartBuilder({
         },
       },
       {
+        ...(table != null ? { from: table } : {}),
         mark: "rect",
         filter: "$filter",
         width: { gap: 1, clampToRatio: 0.1 },
@@ -267,6 +293,7 @@ registerChartBuilder({
         },
       },
       {
+        ...(table != null ? { from: table } : {}),
         mark: "rect",
         filter: "$filter",
         height: 1,
@@ -293,15 +320,17 @@ registerChartBuilder({
   icon: "chart-bubble",
   description: "Create a bubble chart",
   ui: [
+    { label: "Table", table: { key: "table" } }, //
     { label: "X Field", field: { key: "x", types: ["number"], required: true } }, //
     { label: "Y Field", field: { key: "y", types: ["number"], required: true } }, //
     { label: "Color Field", field: { key: "color", types: ["number", "string", "Date"] } }, //
     { label: "Group Field", field: { key: "group", types: ["number", "string", "Date"] } }, //
   ] as const,
-  create: ({ x, y, color, group }): ChartSpec | undefined => ({
+  create: ({ x, y, color, group, table }): ChartSpec | undefined => ({
     title: x.name,
     layers: [
       {
+        ...(table != null ? { from: table } : {}),
         mark: "point",
         filter: "$filter",
         style: {
@@ -330,21 +359,102 @@ registerChartBuilder({
   icon: "chart-embedding",
   description: "Create an embedding view",
   ui: [
+    { label: "Table", table: { key: "table" } }, //
     { label: "X Field", field: { key: "x", types: ["number"], required: true } }, //
     { label: "Y Field", field: { key: "y", types: ["number"], required: true } }, //
     { label: "Text Field", field: { key: "text", types: ["string"] } }, //
     { label: "Category Field", field: { key: "category", types: ["string", "number", "Date"] } }, //
   ] as const,
   preview: false,
-  create: ({ x, y, text, category }, context): EmbeddingSpec | undefined => ({
+  create: ({ x, y, text, category, table }, context): EmbeddingSpec | undefined => ({
     type: "embedding",
     title: "Embedding",
     data: {
+      // The builder passes undefined for the main table, so single-table specs stay
+      // clean (and filterFor(mainTable) is not accidentally triggered). When a
+      // non-default table is set, its id column must be set too, since it differs per table.
+      ...(table != null ? { table, id: context.tables[table]?.id } : {}),
       x: x.name,
       y: y.name,
       text: text?.name,
       category: category?.name,
     },
+  }),
+});
+
+registerChartBuilder({
+  icon: "chart-parallel-coordinates",
+  description: "Create a parallel coordinates plot of multiple fields",
+  ui: [
+    { label: "Table", table: { key: "table" } }, //
+    { label: "Axes", fields: { key: "fields", types: ["number", "string", "Date"], required: true } }, //
+    { label: "Color", field: { key: "color", types: ["number", "string", "Date"] } },
+  ] as const,
+  create: ({ fields, color, table }): ParallelCoordinatesSpec | undefined => {
+    // A parallel coordinates plot needs at least two axes to be meaningful.
+    if (fields.length < 2) {
+      return undefined;
+    }
+    return {
+      type: "parallel-coordinates",
+      title: "Parallel Coordinates",
+      data: {
+        ...(table != null ? { from: table } : {}),
+        fields: fields.map((f) => f.name),
+        ...(color != null ? { color: color.name } : {}),
+        filter: "$filter",
+      },
+    };
+  },
+});
+
+registerChartBuilder({
+  icon: "chart-features-list",
+  description: "Create a searchable list of features with counts and cross-filtering",
+  ui: [
+    {
+      label: "Features Field",
+      details: "A list of strings, or a list of { feature, source?, index? } structs",
+      field: { key: "features", required: true, accept: isFeaturesColumn },
+    },
+    {
+      label: "Metadata Table",
+      details: "An optional table with one row per feature, providing descriptions and topics",
+      table: { key: "metadataTable", optional: true },
+    },
+    {
+      label: "Metadata Feature Field",
+      field: { key: "metadataFeature", types: ["string"], table: "metadataTable", required: true },
+    },
+    {
+      label: "Metadata Description Field",
+      field: { key: "metadataDescription", types: ["string"], table: "metadataTable" },
+    },
+    {
+      label: "Metadata Topics Field",
+      field: { key: "metadataTopics", types: ["string[]"], table: "metadataTable" },
+    },
+  ] as const,
+  create: ({
+    features,
+    metadataTable,
+    metadataFeature,
+    metadataDescription,
+    metadataTopics,
+  }): FeaturesListSpec | undefined => ({
+    type: "features-list",
+    title: "Features",
+    data: { features: features.name },
+    ...(metadataTable != null && metadataFeature != null
+      ? {
+          metadata: {
+            table: metadataTable,
+            feature: metadataFeature.name,
+            ...(metadataDescription != null ? { description: metadataDescription.name } : {}),
+            ...(metadataTopics != null ? { topics: metadataTopics.name } : {}),
+          },
+        }
+      : {}),
   }),
 });
 

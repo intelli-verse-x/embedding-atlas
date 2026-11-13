@@ -231,46 +231,129 @@ async def async_compute_projection(
     return nw.to_native(nw_frame.with_columns(new_columns))
 
 
-def _detect_binary_modality(data: bytes) -> str:
-    """Detect whether binary data is an image or audio based on magic bytes."""
+# Brands of ISO BMFF (`ftyp`) containers that hold still images rather than
+# audio/video: HEIF/HEIC (as produced by iPhones) and AVIF.
+_HEIF_IMAGE_BRANDS = {
+    b"heic",
+    b"heix",
+    b"hevc",
+    b"hevx",
+    b"heim",
+    b"heis",
+    b"hevm",
+    b"hevs",
+    b"mif1",
+    b"msf1",
+    b"avif",
+    b"avis",
+}
+
+
+def _ftyp_brands(data: bytes) -> set[bytes]:
+    """Return the major and compatible brands of a leading ISO BMFF `ftyp` box."""
+    if len(data) < 12 or data[4:8] != b"ftyp":
+        return set()
+    box_size = int.from_bytes(data[:4], "big")
+    end = min(len(data), box_size) if box_size >= 16 else len(data)
+    brands = {data[8:12]}
+    # Compatible brands follow the 4-byte minor version at offset 12.
+    for offset in range(16, end - 3, 4):
+        brands.add(data[offset : offset + 4])
+    return brands
+
+
+_AVIF_BRANDS = {b"avif", b"avis"}
+_HEIC_BRANDS = {b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs"}
+
+
+# MPEG audio and AAC ADTS frames have no magic bytes, only a sync word at the
+# start of each frame. 0xFF padding and other binary data can start with the
+# same bits, so the rest of the header must also be valid.
+def _is_adts_header(data: bytes) -> bool:
+    # 12-bit sync word, layer 00, and a sampling frequency index below 13.
+    return (
+        len(data) >= 3
+        and data[0] == 0xFF
+        and (data[1] & 0xF6) == 0xF0
+        and (data[2] >> 2) & 0x0F < 13
+    )
+
+
+def _is_mpeg_audio_header(data: bytes) -> bool:
+    # 11-bit sync word, then no reserved version, layer, bitrate or sample rate.
+    if len(data) < 3 or data[0] != 0xFF or (data[1] & 0xE0) != 0xE0:
+        return False
+    version = (data[1] >> 3) & 0x03
+    layer = (data[1] >> 1) & 0x03
+    bitrate = data[2] >> 4
+    sample_rate = (data[2] >> 2) & 0x03
+    return version != 0b01 and layer != 0b00 and bitrate != 0x0F and sample_rate != 0b11
+
+
+def _detect_mime_type(data: bytes) -> str | None:
+    """Return the MIME type of image or audio bytes based on magic bytes, or None if unknown."""
     # Image formats
     if data[:8] == b"\x89PNG\r\n\x1a\n":  # PNG
-        return "image"
+        return "image/png"
     if data[:2] == b"\xff\xd8":  # JPEG
-        return "image"
+        return "image/jpeg"
     if data[:4] == b"GIF8":  # GIF87a / GIF89a
-        return "image"
+        return "image/gif"
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":  # WebP
-        return "image"
+        return "image/webp"
     if data[:4] == b"\x00\x00\x01\x00":  # ICO
-        return "image"
+        return "image/vnd.microsoft.icon"
     if data[:2] in (b"BM",):  # BMP
-        return "image"
+        return "image/bmp"
     if data[:4] in (b"II\x2a\x00", b"MM\x00\x2a"):  # TIFF
-        return "image"
+        return "image/tiff"
+    brands = _ftyp_brands(data)
+    if brands & _HEIF_IMAGE_BRANDS:  # HEIF / HEIC / AVIF
+        if brands & _AVIF_BRANDS:
+            return "image/avif"
+        if brands & _HEIC_BRANDS:
+            return "image/heic"
+        return "image/heif"
 
     # Audio formats
     if data[:4] == b"RIFF" and data[8:12] == b"WAVE":  # WAV
-        return "audio"
+        return "audio/wav"
     if data[:4] == b"fLaC":  # FLAC
-        return "audio"
+        return "audio/flac"
     if data[:4] == b"OggS":  # OGG (Vorbis/Opus)
-        return "audio"
-    if data[:3] == b"ID3" or data[:2] == b"\xff\xfb":  # MP3 (ID3 tag or sync frame)
-        return "audio"
-    if len(data) >= 12 and data[4:8] == b"ftyp":  # MP4/M4A container
-        return "audio"
+        return "audio/ogg"
+    if data[:3] == b"ID3":  # MP3 with an ID3v2 tag
+        return "audio/mpeg"
+    if _is_adts_header(data):  # AAC without a container
+        return "audio/aac"
+    if _is_mpeg_audio_header(data):  # MP3/MP2/MP1 without an ID3 tag
+        return "audio/mpeg"
+    if len(data) >= 12 and data[4:8] == b"ftyp":  # MP4/M4A container (non-image brands)
+        return "audio/mp4"
     if data[:4] == b".snd":  # AU
-        return "audio"
+        return "audio/basic"
     if data[:4] in (b"FORM",) and data[8:12] == b"AIFF":  # AIFF
-        return "audio"
+        return "audio/aiff"
 
+    return None
+
+
+def _detect_binary_modality(data: bytes) -> str:
+    """Detect whether binary data is an image or audio based on magic bytes."""
+    mime_type = _detect_mime_type(data)
+    if mime_type is not None and mime_type.startswith("audio/"):
+        return "audio"
     # Default to image for unrecognized binary data
     return "image"
 
 
 def _infer_modality(series: nw.Series) -> str:
     """Infer the modality by inspecting the first non-null value in the series."""
+    # Typed list/array columns (e.g. polars) don't return a Python list per value
+    dtype = series.dtype
+    if isinstance(dtype, (nw.List, nw.Array)) and dtype.inner.is_numeric():
+        return "vector"
+
     non_null = series.drop_nulls()
     if len(non_null) == 0:
         return "text"
@@ -282,7 +365,7 @@ def _infer_modality(series: nw.Series) -> str:
     if (
         isinstance(sample, list)
         and len(sample) > 0
-        and isinstance(sample[0], (int, float))
+        and isinstance(sample[0], (int, float, np.number))
     ):
         return "vector"
 

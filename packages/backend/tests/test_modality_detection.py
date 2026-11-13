@@ -5,6 +5,7 @@
 import narwhals as nw
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
 from embedding_atlas.projection import (
     _detect_binary_modality,
@@ -64,6 +65,20 @@ class TestDetectBinaryModality:
         data = b"MM\x00\x2a" + b"\x00" * 20
         assert _detect_binary_modality(data) == "image"
 
+    def test_heic(self):
+        data = b"\x00\x00\x00\x18ftyp" + b"heic" + b"\x00" * 20
+        assert _detect_binary_modality(data) == "image"
+
+    def test_heif_mif1(self):
+        # HEIF files may use the generic "mif1" major brand with "heic" only
+        # listed among the compatible brands.
+        data = b"\x00\x00\x00\x18ftyp" + b"mif1" + b"\x00\x00\x00\x00" + b"mif1heic"
+        assert _detect_binary_modality(data) == "image"
+
+    def test_avif(self):
+        data = b"\x00\x00\x00\x1cftyp" + b"avif" + b"\x00" * 20
+        assert _detect_binary_modality(data) == "image"
+
     # -- Audio formats --
 
     def test_wav(self):
@@ -86,8 +101,38 @@ class TestDetectBinaryModality:
         data = b"\xff\xfb\x90\x00" + b"\x00" * 20
         assert _detect_binary_modality(data) == "audio"
 
+    @pytest.mark.parametrize(
+        "header",
+        [
+            b"\xff\xfa",  # MPEG-1 Layer III with CRC
+            b"\xff\xf3",  # MPEG-2 Layer III (16/22.05/24 kHz)
+            b"\xff\xf2",  # MPEG-2 Layer III with CRC
+            b"\xff\xe3",  # MPEG-2.5 Layer III (8/11.025/12 kHz)
+            b"\xff\xf1",  # AAC ADTS
+        ],
+    )
+    def test_mpeg_and_adts_sync_frames(self, header):
+        data = header + b"\x00" * 20
+        assert _detect_binary_modality(data) == "audio"
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            b"\xff\xd8\xff\xe0" + b"\x00" * 20,  # JPEG must win over the sync check
+            b"\xff\xff\xff" + b"\x00" * 20,  # 0xFF padding
+            b"\xff\xe1\x00" + b"\x00" * 20,  # not valid MPEG or ADTS
+            b"\xff",  # too short
+        ],
+    )
+    def test_sync_like_bytes_that_are_not_audio(self, data):
+        assert _detect_binary_modality(data) == "image"
+
     def test_mp4_m4a(self):
         data = b"\x00\x00\x00\x1cftyp" + b"M4A " + b"\x00" * 20
+        assert _detect_binary_modality(data) == "audio"
+
+    def test_mp4_generic_brand(self):
+        data = b"\x00\x00\x00\x1cftyp" + b"isom" + b"\x00" * 20
         assert _detect_binary_modality(data) == "audio"
 
     def test_au(self):
@@ -137,6 +182,28 @@ class TestInferModality:
 
     def test_vector_empty_list_falls_through_to_text(self):
         series = _nw_series([[], []])
+        assert _infer_modality(series) == "text"
+
+    def test_vector_list_of_numpy_scalars(self):
+        vectors = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
+        series = _nw_series([list(v) for v in vectors])
+        assert _infer_modality(series) == "vector"
+
+    def test_vector_polars_list(self):
+        series = nw.from_native(
+            pl.Series([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]), series_only=True
+        )
+        assert _infer_modality(series) == "vector"
+
+    def test_vector_polars_array(self):
+        series = nw.from_native(
+            pl.Series([[1.0, 2.0], [3.0, 4.0]], dtype=pl.Array(pl.Float32, 2)),
+            series_only=True,
+        )
+        assert _infer_modality(series) == "vector"
+
+    def test_polars_list_of_strings_is_text(self):
+        series = nw.from_native(pl.Series([["a", "b"], ["c"]]), series_only=True)
         assert _infer_modality(series) == "text"
 
     def test_image_bytes(self):

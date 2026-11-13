@@ -24,6 +24,7 @@
   let {
     coordinator,
     data,
+    additionalTables,
     initialState,
     searcher: specifiedSearcher,
     defaultChartsConfig,
@@ -37,12 +38,14 @@
     onPredicateChange,
     modelContext,
     cache,
+    highlight: highlightProp = null,
   }: EmbeddingAtlasProps = $props();
 
   // svelte-ignore state_referenced_locally
   let store = new EmbeddingAtlasStore({
     coordinator,
     data,
+    additionalTables: additionalTables,
     initialState,
     searcher: specifiedSearcher,
     defaultChartsConfig,
@@ -60,7 +63,7 @@
   // Set the store context
   setStoreContext(store);
 
-  let { colorScheme, userColorScheme, chartContext, activePanel, currentLayout, canUndo, canRedo } = store;
+  let { colorScheme, userColorScheme, activePanel, currentLayout, canUndo, canRedo } = store;
 
   $effect.pre(() => {
     $userColorScheme = colorSchemeProp;
@@ -98,6 +101,11 @@
     if (chartTheme !== get(store.chartTheme)) {
       store.chartTheme.set(chartTheme ?? undefined);
     }
+  });
+
+  // Sync the external highlight prop with the internal highlight store.
+  $effect.pre(() => {
+    store.chartContext.highlight.set(highlightProp != null && highlightProp.length > 0 ? highlightProp : null);
   });
 
   let mcpStatus = $state.raw<string | undefined>(undefined);

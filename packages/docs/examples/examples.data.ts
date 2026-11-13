@@ -11,6 +11,8 @@ interface Example {
   state?: Omit<EmbeddingAtlasState, "charts"> & { charts: Record<string, BuiltinChartSpec> };
 }
 
+const VERSION = "0.26.0";
+
 const examples: Record<string, Example[]> = {
   embedding: [
     {
@@ -23,7 +25,7 @@ const examples: Record<string, Example[]> = {
         embedding: { precomputed: { x: "projection_x", y: "projection_y", neighbors: "neighbors" } },
       },
       state: {
-        version: "0.21.0",
+        version: VERSION,
         charts: {
           1: {
             type: "embedding",
@@ -153,7 +155,7 @@ const examples: Record<string, Example[]> = {
         embedding: { precomputed: { x: "projection_x", y: "projection_y", neighbors: "neighbors" } },
       },
       state: {
-        version: "0.21.0",
+        version: VERSION,
         charts: {
           1: {
             type: "embedding",
@@ -257,7 +259,7 @@ const examples: Record<string, Example[]> = {
         embedding: { precomputed: { x: "projection_x", y: "projection_y", neighbors: "neighbors" } },
       },
       state: {
-        version: "0.21.0",
+        version: VERSION,
         charts: {
           1: {
             type: "embedding",
@@ -300,7 +302,7 @@ const examples: Record<string, Example[]> = {
         embedding: { precomputed: { x: "projection_x", y: "projection_y", neighbors: "neighbors" } },
       },
       state: {
-        version: "0.21.0",
+        version: VERSION,
         charts: {
           1: {
             type: "embedding",
@@ -388,6 +390,54 @@ const examples: Record<string, Example[]> = {
         currentLayout: "1",
       },
     },
+    {
+      title: "ImageWoof",
+      details: "Data from Hugging Face: frgfm/imagewoof",
+      image: "/assets/examples/imagewoof-${colorscheme}.jpg",
+      data: "example://imagewoof",
+      settings: {
+        embedding: { precomputed: { x: "projection_x", y: "projection_y", neighbors: "neighbors" } },
+      },
+      state: {
+        version: VERSION,
+        charts: {
+          "1": {
+            type: "embedding",
+            title: "Embedding",
+            data: {
+              x: "projection_x",
+              y: "projection_y",
+              image: "image",
+              neighbors: "neighbors",
+              category: "label",
+              importance: "pagerank",
+            },
+          },
+          "2": { type: "instances", title: "Instances", viewMode: "cards" },
+        },
+        layouts: {
+          "1": {
+            type: "dashboard",
+            name: "Dashboard",
+            chartIds: ["1", "2"],
+            grids: {
+              "24x18": {
+                placements: {
+                  "1": { x: 0, y: 0, width: 13, height: 18 },
+                  "2": { x: 13, y: 0, width: 11, height: 18 },
+                },
+              },
+            },
+          },
+        },
+        columnStyles: {
+          image: { display: "full", renderer: "image", options: { size: 160 } },
+          neighbors: { display: "hidden" },
+          projection_y: { display: "hidden" },
+          projection_x: { display: "hidden" },
+        },
+      },
+    },
   ],
   tabular: [
     {
@@ -397,7 +447,7 @@ const examples: Record<string, Example[]> = {
       data: "example://movies",
       settings: {},
       state: {
-        version: "0.21.0",
+        version: VERSION,
         charts: {
           1: {
             title: "IMDB Rating vs. Rotten Tomatos Rating",
@@ -632,7 +682,7 @@ const examples: Record<string, Example[]> = {
       data: "example://ScienceQA",
       settings: {},
       state: {
-        version: "0.21.0",
+        version: VERSION,
         charts: {
           1: { type: "predicates", title: "SQL Predicates" },
           2: { type: "instances", title: "Table" },
@@ -694,7 +744,7 @@ const examples: Record<string, Example[]> = {
       data: "example://census-income",
       settings: {},
       state: {
-        version: "0.21.0",
+        version: VERSION,
         charts: {
           1: {
             title: "Age by Marital Status",
@@ -804,7 +854,7 @@ const examples: Record<string, Example[]> = {
       data: "example://california-housing",
       settings: {},
       state: {
-        version: "0.21.0",
+        version: VERSION,
         charts: {
           1: {
             title: "MedHouseVal",
@@ -927,6 +977,15 @@ const examples: Record<string, Example[]> = {
 };
 
 const datasets = [
+  {
+    key: "example://imagewoof",
+    title: "Imagewoof: a subset of 10 dog breed classes from ImageNet",
+    authors: "Jeremy Howard, 2019",
+    link: {
+      title: "frgfm/imagewoof",
+      url: "https://huggingface.co/datasets/frgfm/imagewoof",
+    },
+  },
   {
     key: "example://wine-reviews",
     title: "Wine Reviews",
