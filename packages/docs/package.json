@@ -1,12 +1,12 @@
 {
   "type": "module",
   "scripts": {
-    "dev": "vitepress dev",
-    "build": "npm run generate_assets && vitepress build",
+    "dev": "node init && vitepress dev",
+    "build": "node init && npm run generate_assets && vitepress build",
     "preview": "npm run generate_assets && vitepress preview",
     "extract-api": "api-extractor run -c scripts/api-extractor.json",
-    "generate_assets": "uv run --project ../backend python generate_assets.py",
-    "generate_cache": "uv run --project ../backend python generate_cache.py"
+    "generate_assets": "uv run --frozen --project ../backend python generate_assets.py",
+    "generate_cache": "uv run --frozen --project ../backend python generate_cache.py"
   },
   "devDependencies": {
     "vitepress": "2.0.0-alpha.17"

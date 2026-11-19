@@ -17,9 +17,9 @@
     "pkg/umap_wasm_bg.wasm"
   ],
   "scripts": {
-    "build:wasm": "cargo build --target wasm32-unknown-unknown --release --features gpu",
-    "build:binding": "rm -rf pkg && wasm-bindgen ../../../target/wasm32-unknown-unknown/release/umap_wasm.wasm --target web --out-dir pkg",
-    "build": "npm run build:wasm && npm run build:binding",
+    "build:wasm": "node init && cargo build --target wasm32-unknown-unknown --release --features gpu",
+    "build:binding": "node init && rm -rf pkg && wasm-bindgen ../../../target/wasm32-unknown-unknown/release/umap_wasm.wasm --target web --out-dir pkg",
+    "build": "node init && npm run build:wasm && npm run build:binding",
     "test": "vitest run"
   },
   "devDependencies": {

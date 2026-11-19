@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "tsc --build --clean && tsc --build",
+    "build": "node init && tsc --build --clean && tsc --build",
     "package": "npm run build && publint",
     "test": "vitest run"
   },

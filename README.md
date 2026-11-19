@@ -39,8 +39,8 @@ Embedding Atlas is a tool that provides interactive visualizations for large emb
 Please visit <https://apple.github.io/embedding-atlas> for a demo and documentation.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./packages/docs/public/assets/embedding-atlas-dark.png">
-  <img alt="screenshot of Embedding Atlas" src="./packages/docs/public/assets/embedding-atlas-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="./packages/docs/public/assets/embedding-atlas-dark.avif">
+  <img alt="screenshot of Embedding Atlas" src="./packages/docs/public/assets/embedding-atlas-light.avif">
 </picture>
 
 ## Get started
@@ -107,6 +107,20 @@ For the algorithm that automatically produces clusters and labels in the embeddi
   archivePrefix={arXiv},
   primaryClass={cs.HC},
   url={https://arxiv.org/abs/2504.07285},
+}
+```
+
+For sensemaking on UMAP's internal kNN graph:
+
+```bibtex
+@misc{chau2026dimensionality,
+  title={Dimensionality Reduction Meets Network Science: Sensemaking on UMAP's kNN Graph},
+  author={Duen Horng Chau and Donghao Ren and Fred Hohman and Dominik Moritz},
+  year={2026},
+  eprint={2607.08746},
+  archivePrefix={arXiv},
+  primaryClass={cs.HC},
+  url={https://arxiv.org/abs/2607.08746},
 }
 ```
 

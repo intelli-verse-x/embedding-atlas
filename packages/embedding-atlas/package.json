@@ -1,6 +1,6 @@
 {
   "name": "embedding-atlas",
-  "version": "0.21.0",
+  "version": "0.26.0",
   "type": "module",
   "license": "MIT",
   "description": "Components for interactive embedding visualization",
@@ -32,8 +32,8 @@
     }
   ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node init && vite",
+    "build": "node init && vite build",
     "check": "svelte-check",
     "package": "npm run build && publint",
     "preview": "vite preview"
